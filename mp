@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-
+#
+# A quick and dirty script to mount my phone and transfer files.
+#
 # Requirements: jmtpfs
 
 
