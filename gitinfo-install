@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+
+for f in $HOME/scripts/gitinfo2-hooks/*;
+do
+    cp $f .git/hooks/ && chmod 755 $PWD/.git/hooks/post-* ;
+done
