@@ -6,13 +6,6 @@ How it works:
     Read a TeX file.
     Read master Bib file.
     Write a new Bib file with only the entries cited in the original TeX file.
-Known problems:
-    It won't recognize multiple citations where individual citations are
-    separated by a white space; i.e., it recognizes 
-    \cite{Author:0000,Author:0001} but not \cite{Author:0000, Author:0001}.
-    This is because the second citation constitutes its own separate string 
-    'Author:0001}', the search algorithm is looking for words including the
-    'cite' substring.
 '''
 
 import os
