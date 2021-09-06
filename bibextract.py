@@ -1,4 +1,9 @@
 '''
+What:
+    It creates a new .bib from a larger .bib file with the natbib citations
+    presents in a given .tex file. Useful if you write your papers relying on
+    your main .bib file but a journal requires a .bib file with only relevant
+    bib entries.
 Requires:
     Python 3x
     The module 'bibtexparser'
@@ -20,14 +25,14 @@ while (not os.path.exists(tex)) :
     tex = input('Try again or press \"Q+Enter\" to exit: ')
     if tex == 'q':
         raise SystemExit
-with open(tex, encoding='utf8') as openedtex : 
+with open(tex, encoding='utf8') as openedtex :
     read_texFile = openedtex.read()
 words = read_texFile.split()
 
 citations = []
 # Loop word by word and from those which have the string 'cite',
 # copy the stuff that comes between curly brackets, ignore the rest.
-[citations.append(re.findall(r'(?<=\{).+?(?=\})',word)) for word in words if re.findall(r'cite',word)] 
+[citations.append(re.findall(r'(?<=\{).+?(?=\})',word)) for word in words if re.findall(r'cite',word)]
 
 # Join all words in a single list.
 citations = [''.join(citation) for citation in citations]
