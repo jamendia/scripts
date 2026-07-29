@@ -1,68 +1,137 @@
-'''
-What:
-    It creates a new .bib from a larger .bib file with the natbib citations
-    presents in a given .tex file. Useful if you write your papers relying on
-    your main .bib file but a journal requires a .bib file with only relevant
-    bib entries.
-Requires:
-    Python 3x
-    The module 'bibtexparser'
-How it works:
-    Read a TeX file.
-    Read master Bib file.
-    Write a new Bib file with only the entries cited in the original TeX file.
-'''
+#!/usr/bin/env python3
+"""
+Create a new .bib with only the entries cited in a .tex file.
 
-import os
+Usage examples:
+  python bibextract.py paper.tex master.bib -o paper-only.bib
+  python bibextract.py -t paper.tex -b master.bib --sort --force
+
+Requirements:
+  pip install bibtexparser
+"""
+from __future__ import annotations
+
+import argparse
+import logging
+from collections import OrderedDict
+from pathlib import Path
+from typing import Iterable, List
+
 import re
 import bibtexparser
-from bibtexparser.bwriter import BibTexWriter
 from bibtexparser.bibdatabase import BibDatabase
+from bibtexparser.bwriter import BibTexWriter
 
-tex = input("Enter name or path to TeX file: ")
-while (not os.path.exists(tex)) :
-    print('I did not find the file: \"%s\" ' % str(tex))
-    tex = input('Try again or press \"Q+Enter\" to exit: ')
-    if tex == 'q':
-        raise SystemExit
-with open(tex, encoding='utf8') as openedtex :
-    read_texFile = openedtex.read()
-words = read_texFile.split()
+LOG = logging.getLogger("bibextract")
 
-citations = []
-# Loop word by word and from those which have the string 'cite',
-# copy the stuff that comes between curly brackets, ignore the rest.
-[citations.append(re.findall(r'(?<=\{).+?(?=\})',word)) for word in words if re.findall(r'cite',word)]
+CITE_PATTERN = re.compile(
+    r'\\[A-Za-z@]*cite[A-Za-z*@]*\s*(?:\[[^\]]*\]\s*)*\{([^}]*)\}',
+    flags=re.DOTALL,
+)
 
-# Join all words in a single list.
-citations = [''.join(citation) for citation in citations]
 
-# Split strings containing multiple citations. It will create a list of lists.
-split_citations = []
-[split_citations.append(re.split(r'\,', citation)) for citation in citations]
+def extract_citation_keys(tex_text: str) -> List[str]:
+    """
+    Extract citation keys from TeX content.
 
-# Flatten the lists of lists into a single list.
-citations = [item for sublist in split_citations for item in sublist]
+    Handles \cite, \citep, \citet, \autocite, etc., optional arguments like
+    \cite[see][p.2]{key1,key2}, and multi-line commands.
+    Returns keys in order of first appearance (duplicates removed).
+    """
+    matches = CITE_PATTERN.findall(tex_text)
+    seen: OrderedDict[str, None] = OrderedDict()
+    for group in matches:
+        # group may contain "key1,key2" possibly with spaces
+        for raw in group.split(","):
+            key = raw.strip()
+            if key and key not in seen:
+                seen[key] = None
+    return list(seen.keys())
 
-bib = input("Enter name or path to Bib file: ")
-while (not os.path.exists(bib)) :
-    print('I did not find the file: \"%s\" ' % str(bib))
-    bib = input('Try again or press \"Q+Enter\" to exit: ')
-    if bib == 'q':
-        raise SystemExit
-with open(bib, encoding="utf8") as bibtex_file :
-    bib_database = bibtexparser.load(bibtex_file)
 
-new_bib = []
-[new_bib.append(item) for item in bib_database.entries if item['ID'] in citations]
-db = BibDatabase()
-db.entries = new_bib
+def load_bib_database(bib_path: Path) -> BibDatabase:
+    with bib_path.open(encoding="utf8") as fh:
+        return bibtexparser.load(fh)
 
-print("Enter name of new bib file:")
-new_bib_file = input()
 
-writer = BibTexWriter()
-with open(new_bib_file, 'w') as bibfile:
-    bibfile.write(writer.write(db))
+def filter_entries_by_keys(entries: Iterable[dict], keys: Iterable[str]) -> List[dict]:
+    key_set = set(keys)
+    filtered = []
+    for entry in entries:
+        # bibtexparser uses 'ID' as the key name
+        entry_id = entry.get("ID") or entry.get("id")
+        if entry_id in key_set:
+            filtered.append(entry)
+    return filtered
 
-print("Your new bib file has been created!")
+
+def write_bib(entries: List[dict], out_path: Path, sort: bool = False) -> None:
+    db = BibDatabase()
+    if sort:
+        entries = sorted(entries, key=lambda e: (e.get("ID") or e.get("id")).lower())
+    db.entries = entries
+    writer = BibTexWriter()
+    writer.indent = "  "
+    writer.order_entries_by = None  # preserve order unless we sorted above
+    with out_path.open("w", encoding="utf8", newline="\n") as fh:
+        fh.write(writer.write(db))
+
+
+def main(argv: List[str] | None = None) -> int:
+    p = argparse.ArgumentParser(description="Extract cited BibTeX entries from a TeX file.")
+    p.add_argument("tex", type=Path, help="Path to TeX file")
+    p.add_argument("bib", type=Path, help="Path to master BibTeX (.bib) file")
+    p.add_argument("-o", "--output", type=Path, default=None, help="Output .bib file (default: <tex-stem>-extracted.bib)")
+    p.add_argument("-s", "--sort", action="store_true", help="Sort entries alphabetically by key in the output")
+    p.add_argument("-f", "--force", action="store_true", help="Overwrite output file if it exists")
+    p.add_argument("-v", "--verbose", action="store_true", help="Verbose logging")
+    args = p.parse_args(argv)
+
+    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO, format="%(levelname)s: %(message)s")
+
+    if not args.tex.exists():
+        LOG.error("TeX file not found: %s", args.tex)
+        return 2
+    if not args.bib.exists():
+        LOG.error("Bib file not found: %s", args.bib)
+        return 2
+
+    tex_text = args.tex.read_text(encoding="utf8")
+    keys = extract_citation_keys(tex_text)
+    if not keys:
+        LOG.warning("No citation keys found in %s", args.tex)
+        return 0
+    LOG.info("Found %d unique citation keys", len(keys))
+
+    bib_db = load_bib_database(args.bib)
+    matched = filter_entries_by_keys(bib_db.entries, keys)
+
+    found_keys = {(e.get("ID") or e.get("id")) for e in matched}
+    missing = [k for k in keys if k not in found_keys]
+    LOG.info("Matched %d entries; %d keys missing from the .bib", len(matched), len(missing))
+    if missing:
+        LOG.warning("Missing keys: %s", ", ".join(missing[:10]) + ("..." if len(missing) > 10 else ""))
+
+    out_path = args.output or args.tex.with_suffix(".extracted.bib")
+    if out_path.exists() and not args.force:
+        LOG.error("Output file already exists (%s). Use --force to overwrite.", out_path)
+        return 3
+
+    # Preserve order of appearance by default
+    entries_in_order = []
+    key_to_entry = {e.get("ID") or e.get("id"): e for e in bib_db.entries}
+    for k in keys:
+        if k in key_to_entry:
+            entries_in_order.append(key_to_entry[k])
+
+    # Fallback: include any matched entries that for some reason didn't appear in the ordered list
+    extra = [e for e in matched if (e.get("ID") or e.get("id")) not in {x.get("ID") or x.get("id") for x in entries_in_order}]
+    entries_in_order.extend(extra)
+
+    write_bib(entries_in_order, out_path, sort=args.sort)
+    LOG.info("Wrote %d entries to %s", len(entries_in_order), out_path)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
