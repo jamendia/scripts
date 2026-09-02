@@ -1,6 +1,8 @@
-# GitHub to GitLab cloner
+# GitHub to GitLab cloner with a wrapper.
 
-It uses Python + Git CLI + GitHub/GitLab REST APIs. In principle it should run on both Linux and Windows; Git handles the actual repository transfer.
+## The script
+
+It uses Git and Python 3 with the `requests` package.
 
 ### Features
 
@@ -9,23 +11,30 @@ It uses Python + Git CLI + GitHub/GitLab REST APIs. In principle it should run o
 - Creates a new GitLab project automatically. 
 - Pushes the complete repository to GitLab.
 - Supports private GitHub repositories and GitLab groups/namespaces.
-- Works on Linux and Windows.
+- Works on Linux and Windows (in principle...).
 - Can optionally overwrite an existing GitLab project.
 - Does not require GitHub CLI or GitLab CLI.
 
 ### Installation and basic use
 
-You need Python 3.9+ and Git installed on both Linux and Windows. The only Python dependency is `requests`:
+Check the prerequisites first and install dependencies:
 
 ```
-python -m pip install requests
+git --version
+python3 --version
 ```
 
-On some Linux distributions you may use (it is advisable to use a virtual environment, as usual):
+If your Linux distribution prevents `pip --user`, use a virtual environment to install dependencies, 
 
 ```
-python3 -m pip install requests
+python3 -m env ~/.config/gh2gl/env
+python3 -m venv ~/.config/gh2gl/venv
+~/.config/gh2gl/venv/bin/pip install requests
 ```
+
+
+
+
 
 Verify Git with `git --version`. Then create your personal tokens:
 
@@ -68,3 +77,26 @@ The script uses `git clone --bare` followed by `git push --mirror`, so it tranfe
 ### Security detail
 
 The script temporarily puts the access tokens into the Git HTTPS URLs used for clone/push. Git does not need credentials to be configured interactively, which makes the process easy to automate, but this is something to be aware of on shared machines. This could be fixed by using Git credential helpers or a temporary credential configuration so tokens never appear in process arguments, etc. But I'm using it for myself, so use at your own peril.
+
+## The wrapper
+
+This small Bash wrapper is set up so that:
+
+- can be invoked from anywhere as `gh2gl` (with the relevant config; see below);
+- takes the repository as an argument: `gh2gl USERNAME/project-a`;
+- asks for the GitHub repository if it is not provided;
+- calls the script;
+- checks that the two tokens exist before launching the Python script, and, if found,
+- passes through your existing GITHUB_TOKEN and GITLAB_TOKEN environment variables.
+
+
+### Use
+
+Assuming your Python script is located at `~/scripts/gh2gl.py`, create `~/scripts/gh2gl`, copy the wrapper, make it executable (with `chmod +x ~/scripts/gh2gl`) and reload the shell `source ~/.bashrc`. 
+
+You are all set. Execute `gh2gl USERNAME/project` and the wrapper automatically executes the script with the following parameter: `python3 ~/scripts/gh2gl.py USERNAME/project`. If you just call `gh2gl` in Bash directly you will get the following prompt:
+
+### Systemwide configuration
+
+
+

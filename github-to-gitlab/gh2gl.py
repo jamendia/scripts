@@ -11,7 +11,6 @@ from urllib.parse import quote
 
 import requests
 
-
 class MigrationError(Exception):
     pass
 

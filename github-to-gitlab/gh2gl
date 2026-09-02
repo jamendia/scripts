@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -e
+
+source "$HOME/scripts/github-to-gitlab/env"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PYTHON_SCRIPT="$SCRIPT_DIR/gh2gl.py"
+
+if [ -z "$GITHUB_TOKEN" ]; then
+    echo "Error: GITHUB_TOKEN is not set."
+    echo "Run:"
+    echo '  export GITHUB_TOKEN="..."'
+    exit 1
+fi
+
+if [ -z "$GITLAB_TOKEN" ]; then
+    echo "Error: GITLAB_TOKEN is not set."
+    echo "Run:"
+    echo '  export GITLAB_TOKEN="..."'
+    exit 1
+fi
+
+if [ -n "$1" ]; then
+    REPOSITORIES="$*"
+else
+    read -r -p "GitHub repository (owner/repository, comma-separated for multiple): " REPOSITORIES
+fi
+
+# Remove spaces around commas and convert commas to spaces
+REPOSITORIES="${REPOSITORIES//, /,}"
+REPOSITORIES="${REPOSITORIES// ,/,}"
+REPOSITORIES="${REPOSITORIES//,/ }"
+
+# Build repository URLs
+REPO_ARGS=()
+
+for REPOSITORY in $REPOSITORIES; do
+    REPO_ARGS+=("https://github.com/$REPOSITORY")
+done
+
+if [ ${#REPO_ARGS[@]} -eq 0 ]; then
+    echo "Error: no repository specified."
+    exit 1
+fi
+
+python3 "$PYTHON_SCRIPT" "${REPO_ARGS[@]}"
