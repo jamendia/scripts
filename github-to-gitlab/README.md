@@ -61,34 +61,6 @@ python3 github_to_gitlab.py \
     USERNAME3/project-c
 ```
 
-The script will create:
-
-```text
-GitHub
-  company/project-a
-          |
-          v
-GitLab
-  project-a
-
-GitHub
-  company/project-b
-          |
-          v
-GitLab
-  project-b
-Migrating into a GitLab group
-```
-
-For example:
-
-```
-python3 gh2gl.py USERNAME1/project-a \
-    --namespace my-gitlab-group
-```
-
-The resulting project will be `my-gitlab-group/project-a`.
-
 ### What gets migrated?
 
 The script uses `git clone --bare` followed by `git push --mirror`, so it tranfers the Git repository's, including branches, tags, commits and the complete history. It does not automatically migrate GitHub-specific features (such as Issues, Pull requests, GitHub Actions, Releases, Stars, etc.). Those would require API-level migration separately.
