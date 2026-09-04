@@ -13,8 +13,7 @@ usage () {
 Usage: $0 [--version] [-w] [-e] [-f] [--no-X] [-d N | --depth=N] [DIR [DIR]...]
 
 mgitstatus shows uncommitted, untracked and unpushed changes in multiple Git
-repositories.  By default, mgitstatus scans two directories deep. This can be
-changed with the -d/--depth option. If DEPTH is 0, the scan is infinitely deep.
+repositories.  By default, mgitstatus scans four directories deep. This can be changed with the -d/--depth option. If DEPTH is 0, the scan is infinitely deep.
 
   --version            Show version
   -w                   Warn about dirs that are not Git repositories
@@ -45,7 +44,7 @@ NO_UPSTREAM=0
 NO_UNCOMMITTED=0
 NO_UNTRACKED=0
 NO_STASHES=0
-DEPTH=2
+DEPTH=4
 
 # Parse args (supports --depth=N and --depth N)
 while [ -n "$1" ]; do
@@ -92,7 +91,8 @@ case "$DEPTH" in
         ;;
 esac
 
-# Colors (only if output is a tty or forced)
+# Colors - in principle only useful if output is a
+# tty or forced, but who knows...
 if [ -t 1 ] || [ "${FORCE_COLOR:-0}" -eq 1 ]; then
     C_RED=$'\033[1;31m'
     C_GREEN=$'\033[1;32m'
@@ -134,7 +134,7 @@ join_unique_comma() {
 
 # Iterate over directories (positional args or ".")
 for DIR in "${@:-"."}"; do
-    # Find .git directories (follow symlinks) up to depth
+    # Find .git directories (follow symlinks too) up to depth
     # We look specifically for entries named ".git" so we avoid iterating all dirs
     # shellcheck disable=SC2086
     find -L "$DIR" $FIND_OPTS -type d -name .git 2>/dev/null | while read -r GIT_DIR; do
