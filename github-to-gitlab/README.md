@@ -68,7 +68,7 @@ The script temporarily puts the access tokens into the Git HTTPS URLs used for c
 
 ## The wrapper
 
-This small Bash wrapper is set up so that:
+This small Bash wrapper is set up so that it:
 
 - can be invoked from anywhere as `gh2gl` (with the relevant config; see below),
 - takes the repository as an argument: `gh2gl USERNAME/project-a`,
