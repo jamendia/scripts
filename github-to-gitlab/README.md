@@ -8,7 +8,7 @@ It uses Git and Python 3 with the `requests` package.
 
 - Accepts one or more GitHub repositories.
 - Clones them as a bare repository, preserving branches and tags.
-- Creates a new GitLab project automatically. 
+- Creates a new GitLab project automatically.
 - Pushes the complete repository to GitLab.
 - Works on Linux and Windows (in principle...).
 - Can optionally overwrite an existing GitLab project.
@@ -16,7 +16,18 @@ It uses Git and Python 3 with the `requests` package.
 
 ### Installation and basic use
 
+<<<<<<< HEAD
 If your Linux distribution prevents `pip --user`, use a virtual environment to install dependencies, 
+=======
+Check the prerequisites first and install dependencies:
+
+```
+git --version
+python3 --version
+```
+
+If your Linux distribution prevents `pip --user`, use a virtual environment to install dependencies,
+>>>>>>> f871fee (fix readme)
 
 ```
 python3 -m env ~/.config/gh2gl/env
@@ -77,5 +88,12 @@ This small Bash wrapper is set up so that it:
 - checks that the two tokens exist before launching the Python script, and, if found,
 - passes through your existing GITHUB_TOKEN and GITLAB_TOKEN environment variables.
 
+<<<<<<< HEAD
 
+=======
+### Use
 
+Assuming your Python script is located at `~/scripts/gh2gl.py`, create `~/scripts/gh2gl`, copy the wrapper, make it executable (with `chmod +x ~/scripts/gh2gl`) and reload the shell `source ~/.bashrc`.
+>>>>>>> f871fee (fix readme)
+
+You are all set. Execute `gh2gl USERNAME/project` and the wrapper automatically executes the script with the following parameter: `python3 ~/scripts/gh2gl.py USERNAME/project`.
