@@ -80,6 +80,5 @@ This small Bash wrapper is set up so that it:
 ### Use
 
 Assuming your Python script is located at `~/scripts/gh2gl.py`, create `~/scripts/gh2gl`, copy the wrapper, make it executable (with `chmod +x ~/scripts/gh2gl`) and reload the shell `source ~/.bashrc`.
->>>>>>> f871fee (fix readme)
 
 You are all set. Execute `gh2gl USERNAME/project` and the wrapper automatically executes the script with the following parameter: `python3 ~/scripts/gh2gl.py USERNAME/project`.
