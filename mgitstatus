@@ -36,7 +36,7 @@ EOF
 # Defaults
 WARN_NOT_REPO=0
 EXCLUDE_OK=0
-DO_FETCH=1
+DO_FETCH=1          # On by default.
 FORCE_COLOR=0
 NO_PUSH=0
 NO_PULL=0
