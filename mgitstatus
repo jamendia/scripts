@@ -12,8 +12,7 @@ usage () {
 
 Usage: $0 [--version] [-w] [-e] [-f] [--no-X] [-d N | --depth=N] [DIR [DIR]...]
 
-mgitstatus shows uncommitted, untracked and unpushed changes in multiple Git
-repositories.  By default, mgitstatus scans four directories deep. This can be changed with the -d/--depth option. If DEPTH is 0, the scan is infinitely deep.
+mgitstatus shows uncommitted, untracked and unpushed changes in multiple Git repositories. By default, mgitstatus scans four directories deep. This can be changed with the -d/--depth option. If DEPTH is 0, the scan is infinitely deep.
 
   --version            Show version
   -w                   Warn about dirs that are not Git repositories
@@ -220,7 +219,7 @@ for DIR in "${@:-"."}"; do
 
                 if [ -n "$REV_LOCAL" ] && [ -n "$REV_REMOTE" ] && [ -n "$REV_BASE" ]; then
                     if [ "$REV_LOCAL" = "$REV_REMOTE" ]; then
-                        : # up-to-date
+                        :
                     else
                         if [ "$REV_LOCAL" = "$REV_BASE" ]; then
                             printf "%s\n" "$REF_HEAD" >> /tmp/mgit_pull_$$ 2>/dev/null || true
@@ -267,7 +266,7 @@ for DIR in "${@:-"."}"; do
         UNTRACKED=$(git -C "$PROJ_DIR" ls-files --exclude-standard --others 2>/dev/null || true)
         STASHES=$(git -C "$PROJ_DIR" stash list 2>/dev/null | wc -l | tr -d ' ')
 
-        # Build up the status string
+        # Set the status
         IS_OK=0  # 0 = Repo needs something, 1 = Repo needs nothing ('ok')
         STATUS_NEEDS=""
 
@@ -289,7 +288,7 @@ for DIR in "${@:-"."}"; do
             STATUS_NEEDS="${STATUS_NEEDS}${C_UNTRACKED}Untracked files${C_RESET} "
         fi
         if [ -n "$STASHES" ] && [ "$STASHES" -ne 0 ] && [ "$NO_STASHES" -eq 0 ]; then
-            STATUS_NEEDS="${STATUS_NEEDS}${C_STASHES}$STASHES stashes${C_RESET} "
+            STATUS_NEEDS="${STATUS_NEEDS}${C_STASHES}$STASHES Stashes${C_RESET} "
         fi
         if [ -z "$STATUS_NEEDS" ]; then
             IS_OK=1
