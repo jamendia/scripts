@@ -1,11 +1,13 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 # MIT license
-# mgitstatus v2.0 — improved
+# mgitstatus v3.5
 # Scans multiple directories for git repositories and reports status.
 
-VERSION="2.0"
+VERSION="3.5"
 DEBUG=0
+
+GIT_ID="$(id -u -n)"
 
 usage () {
     cat << EOF >&2
@@ -45,7 +47,7 @@ NO_UNTRACKED=0
 NO_STASHES=0
 DEPTH=4
 
-# Parse args (supports --depth=N and --depth N)
+# Parse args
 while [ -n "$1" ]; do
     case "$1" in
         --version) echo "v$VERSION"; exit 0 ;;
@@ -60,23 +62,11 @@ while [ -n "$1" ]; do
         --no-uncommitted) NO_UNCOMMITTED=1 ;;
         --no-untracked) NO_UNTRACKED=1 ;;
         --no-stashes) NO_STASHES=1 ;;
-        -d)
-            shift
-            DEPTH="$1"
-            ;;
-        --depth=*)
-            DEPTH="${1#--depth=}"
-            ;;
-        --depth)
-            shift
-            DEPTH="$1"
-            ;;
+        -d) shift; DEPTH="$1" ;;
+        --depth=*) DEPTH="${1#--depth=}" ;;
+        --depth) shift; DEPTH="$1" ;;
         --) shift; break ;;
-        -*)
-            echo "Unknown option: $1" >&2
-            usage
-            exit 1
-            ;;
+        -*) echo "Unknown option: $1" >&2; usage; exit 1 ;;
         *) break ;;
     esac
     shift
@@ -90,8 +80,7 @@ case "$DEPTH" in
         ;;
 esac
 
-# Colors - in principle only useful if output is a
-# tty or forced, but who knows...
+# Colors Setup
 if [ -t 1 ] || [ "${FORCE_COLOR:-0}" -eq 1 ]; then
     C_RED=$'\033[1;31m'
     C_GREEN=$'\033[1;32m'
@@ -104,52 +93,51 @@ else
     C_RED="" C_GREEN="" C_YELLOW="" C_BLUE="" C_PURPLE="" C_CYAN="" C_RESET=""
 fi
 
+# Colors
 C_OK="$C_GREEN"
-C_LOCKED="$C_RED"
-C_NEEDS_PUSH="$C_YELLOW"
+C_LOCKED="$C_PURPLE"
+C_NEEDS_PUSH="$C_RED"
 C_NEEDS_PULL="$C_BLUE"
 C_NEEDS_COMMIT="$C_RED"
 C_NEEDS_UPSTREAM="$C_PURPLE"
 C_UNTRACKED="$C_CYAN"
 C_STASHES="$C_YELLOW"
+C_UNSAFE="$C_PURPLE"
 
-# Ensure git exists
 if ! command -v git >/dev/null 2>&1; then
     echo "git not found in PATH" >&2
     exit 2
 fi
 
-# Find option for find
 FIND_OPTS=""
 if [ "$DEPTH" -ne 0 ]; then
-    FIND_OPTS="$FIND_OPTS -maxdepth $DEPTH"
+    FIND_OPTS="-maxdepth $DEPTH"
 fi
 
-# Helper: join unique non-empty lines with commas
-join_unique_comma() {
-    # Reads stdin lines, prints comma-separated unique list or empty string
-    awk 'NF { seen[$0]=1 } END { first=1; for (k in seen) { if (!first) printf ","; printf "%s", k; first=0 } }'
-}
-
-# Iterate over directories (positional args or ".")
+# Iterate over directories
 for DIR in "${@:-"."}"; do
-    # Find .git directories (follow symlinks too) up to depth
-    # We look specifically for entries named ".git" so we avoid iterating all dirs
-    # shellcheck disable=SC2086
-    find -L "$DIR" $FIND_OPTS -type d -name .git 2>/dev/null | while read -r GIT_DIR; do
-        # Resolve project root (parent of .git)
+    
+    # Process substitution avoids subshell execution, keeping scope variables accessible
+    while read -r GIT_DIR; do
         PROJ_DIR=$(dirname "$GIT_DIR")
 
-        # Handle gitdir files (git worktrees and submodules) where .git is a file
+        # Check ownership safely
+        if [ -d "$GIT_DIR" ]; then
+            GIT_DIR_OWNER="$(stat -c %U "$GIT_DIR")"
+            if [ "$GIT_ID" != "$GIT_DIR_OWNER" ]; then
+                printf "${PROJ_DIR}: ${C_UNSAFE}unsafe, owned by ${GIT_DIR_OWNER}. Skipping.${C_RESET}\n"
+                continue
+            fi
+        fi
+
+        # Handle gitdir files (git worktrees and submodules)
         if [ -f "$GIT_DIR" ] && [ ! -d "$GIT_DIR" ]; then
-            # file contains: gitdir: /path/to/real/gitdir
             firstline=$(sed -n '1p' "$GIT_DIR" 2>/dev/null || true)
             case "$firstline" in
                 gitdir:\ *) real_gitdir=${firstline#gitdir: } ;;
                 *) real_gitdir="" ;;
             esac
             if [ -n "$real_gitdir" ]; then
-                # If it is relative, resolve relative to PROJ_DIR
                 case "$real_gitdir" in
                     /*) GIT_DIR="$real_gitdir" ;;
                     *) GIT_DIR="$PROJ_DIR/$real_gitdir" ;;
@@ -157,7 +145,6 @@ for DIR in "${@:-"."}"; do
             fi
         fi
 
-        # Sanity: if there's no git dir, skip
         if [ ! -d "$GIT_DIR" ]; then
             if [ "$WARN_NOT_REPO" -eq 1 ] && [ "$PROJ_DIR" != "." ]; then
                 printf "%s: not a git repo\n" "$PROJ_DIR"
@@ -165,95 +152,46 @@ for DIR in "${@:-"."}"; do
             continue
         fi
 
-        [ "$DEBUG" -eq 1 ] && echo "Inspecting: $PROJ_DIR (gitdir: $GIT_DIR)" >&2
+        [ "$DEBUG" -eq 1 ] && echo "Inspecting: $GIT_DIR (gitdir: $PROJ_DIR)" >&2
 
-        # Check config mgitstatus.ignore
-        GIT_CONF="$GIT_DIR/config"
-        if git -C "$PROJ_DIR" config --file "$GIT_CONF" --bool mgitstatus.ignore >/dev/null 2>&1; then
-            IGNORE=$(git -C "$PROJ_DIR" config --file "$GIT_CONF" --bool mgitstatus.ignore 2>/dev/null || true)
-            if [ "$IGNORE" = "true" ]; then
-                [ "$DEBUG" -eq 1 ] && echo "Ignoring $PROJ_DIR per mgitstatus.ignore" >&2
-                continue
-            fi
-        fi
-
-        # Skip if index.lock exists
         if [ -f "$GIT_DIR/index.lock" ]; then
-            printf "%s: %sLocked. Skipping.%s\n" "$PROJ_DIR" "$C_LOCKED" "$C_RESET"
+            printf "%s: %s Locked. Skipping.%s\n" "$PROJ_DIR" "$C_LOCKED" "$C_RESET"
             continue
         fi
 
-        # Optional fetch
         if [ "$DO_FETCH" -eq 1 ]; then
             git -C "$PROJ_DIR" fetch -q >/dev/null 2>&1 || true
         fi
 
-        # Refresh index
         git -C "$PROJ_DIR" update-index -q --refresh >/dev/null 2>&1 || true
 
-        NEEDS_PUSH_BRANCHES=""
-        NEEDS_PULL_BRANCHES=""
-        NEEDS_UPSTREAM_BRANCHES=""
+        # Define arrays natively to replace old /tmp text files
+        push_branches=()
+        pull_branches=()
+        upstream_branches=()
 
-        # Use for-each-ref to list local branches reliably (handles spaces)
-        git -C "$PROJ_DIR" for-each-ref --format='%(refname:short)' refs/heads 2>/dev/null |
-        while read -r REF_HEAD; do
-            # Find upstream
-            UPSTREAM=$(git -C "$PROJ_DIR" rev-parse --abbrev-ref --symbolic-full-name "$REF_HEAD@{u}" 2>/dev/null || true)
-            if [ -n "$UPSTREAM" ]; then
-                # Ahead/behind counts
-                CNT_AHEAD_BEHIND=$(git -C "$PROJ_DIR" rev-list --left-right --count "$REF_HEAD...$UPSTREAM" 2>/dev/null || true)
-                CNT_AHEAD=$(printf "%s" "$CNT_AHEAD_BEHIND" | awk '{ print $1+0 }' 2>/dev/null || printf "0")
-                CNT_BEHIND=$(printf "%s" "$CNT_AHEAD_BEHIND" | awk '{ print $2+0 }' 2>/dev/null || printf "0")
-
-                if [ "${CNT_AHEAD:-0}" -gt 0 ]; then
-                    printf "%s\n" "$REF_HEAD" >> /tmp/mgit_push_$$ 2>/dev/null || true
-                fi
-                if [ "${CNT_BEHIND:-0}" -gt 0 ]; then
-                    printf "%s\n" "$REF_HEAD" >> /tmp/mgit_pull_$$ 2>/dev/null || true
-                fi
-
-                REV_LOCAL=$(git -C "$PROJ_DIR" rev-parse --verify "$REF_HEAD" 2>/dev/null || true)
-                REV_REMOTE=$(git -C "$PROJ_DIR" rev-parse --verify "$UPSTREAM" 2>/dev/null || true)
-                REV_BASE=$(git -C "$PROJ_DIR" merge-base "$REF_HEAD" "$UPSTREAM" 2>/dev/null || true)
-
-                if [ -n "$REV_LOCAL" ] && [ -n "$REV_REMOTE" ] && [ -n "$REV_BASE" ]; then
-                    if [ "$REV_LOCAL" = "$REV_REMOTE" ]; then
-                        :
-                    else
-                        if [ "$REV_LOCAL" = "$REV_BASE" ]; then
-                            printf "%s\n" "$REF_HEAD" >> /tmp/mgit_pull_$$ 2>/dev/null || true
-                        fi
-                        if [ "$REV_REMOTE" = "$REV_BASE" ]; then
-                            printf "%s\n" "$REF_HEAD" >> /tmp/mgit_push_$$ 2>/dev/null || true
-                        fi
-                    fi
-                fi
-            else
-                printf "%s\n" "$REF_HEAD" >> /tmp/mgit_upstream_$$ 2>/dev/null || true
+        # Modern branch tracking evaluation using git native formatting engine
+        while read -r branch track upstream; do
+            [ -z "$branch" ] && continue
+            
+            if [ "$upstream" = "none" ]; then
+                upstream_branches+=("$branch")
+            elif [[ "$track" == *ahead* ]]; then
+                push_branches+=("$branch")
+            elif [[ "$track" == *behind* ]]; then
+                pull_branches+=("$branch")
             fi
-        done
+        done < <(git -C "$PROJ_DIR" for-each-ref --format='%(refname:short) %(upstream:track) %(if)%(upstream)%(then)has_upstream%(else)none%(end)' refs/heads 2>/dev/null)
 
-        # Aggregate and dedupe branch lists (if files exist)
-        if [ -f /tmp/mgit_push_$$ ]; then
-            NEEDS_PUSH_BRANCHES=$(sort -u /tmp/mgit_push_$$ 2>/dev/null | join_unique_comma)
-            rm -f /tmp/mgit_push_$$
-        fi
-        if [ -f /tmp/mgit_pull_$$ ]; then
-            NEEDS_PULL_BRANCHES=$(sort -u /tmp/mgit_pull_$$ 2>/dev/null | join_unique_comma)
-            rm -f /tmp/mgit_pull_$$
-        fi
-        if [ -f /tmp/mgit_upstream_$$ ]; then
-            NEEDS_UPSTREAM_BRANCHES=$(sort -u /tmp/mgit_upstream_$$ 2>/dev/null | join_unique_comma)
-            rm -f /tmp/mgit_upstream_$$
-        fi
+        # Bash array joining tool using IFS
+        join_by_comma() { local IFS=","; echo "$*"; }
+        
+        NEEDS_PUSH_BRANCHES=$(join_by_comma "${push_branches[@]}")
+        NEEDS_PULL_BRANCHES=$(join_by_comma "${pull_branches[@]}")
+        NEEDS_UPSTREAM_BRANCHES=$(join_by_comma "${upstream_branches[@]}")
 
-        # Find unstaged / uncommitted / untracked / stashes
-        git -C "$PROJ_DIR" update-index -q --refresh >/dev/null 2>&1 || true
-        git -C "$PROJ_DIR" rev-parse --verify HEAD >/dev/null 2>&1
-        HAS_HEAD=$?
-        if [ "$HAS_HEAD" -ne 0 ]; then
-            # No commits yet: treat everything as uncommitted/untracked
+        # Evaluate index state
+        if ! git -C "$PROJ_DIR" rev-parse --verify HEAD >/dev/null 2>&1; then
             UNSTAGED=1
             UNCOMMITTED=1
         else
@@ -263,41 +201,46 @@ for DIR in "${@:-"."}"; do
             UNCOMMITTED=$?
         fi
 
-        UNTRACKED=$(git -C "$PROJ_DIR" ls-files --exclude-standard --others 2>/dev/null || true)
-        STASHES=$(git -C "$PROJ_DIR" stash list 2>/dev/null | wc -l | tr -d ' ')
+        # Extract untracked files count
+        UNTRACKED=$(git -C "$PROJ_DIR" ls-files --exclude-standard --others 2>/dev/null)
+        
+        # Super-fast stash check: count line items natively if file exists
+        STASHES=0
+        if [ -f "$GIT_DIR/logs/refs/stash" ]; then
+            STASHES=$(wc -l < "$GIT_DIR/logs/refs/stash")
+        fi
 
-        # Set the status
-        IS_OK=0  # 0 = Repo needs something, 1 = Repo needs nothing ('ok')
+        # Synthesize status flags
+        IS_OK=0
         STATUS_NEEDS=""
 
         if [ -n "$NEEDS_PUSH_BRANCHES" ] && [ "$NO_PUSH" -eq 0 ]; then
-            STATUS_NEEDS="${STATUS_NEEDS}${C_NEEDS_PUSH}Needs push ($NEEDS_PUSH_BRANCHES)${C_RESET} "
+            STATUS_NEEDS="${STATUS_NEEDS}${C_NEEDS_PUSH}needs push${C_RESET} " # ( $NEEDS_PUSH_BRANCHES)${C_RESET}
         fi
         if [ -n "$NEEDS_PULL_BRANCHES" ] && [ "$NO_PULL" -eq 0 ]; then
-            STATUS_NEEDS="${STATUS_NEEDS}${C_NEEDS_PULL}Needs pull ($NEEDS_PULL_BRANCHES)${C_RESET} "
+            STATUS_NEEDS="${STATUS_NEEDS}${C_NEEDS_PULL}needs pull${C_RESET} " #( $NEEDS_PULL_BRANCHES)${C_RESET}
         fi
         if [ -n "$NEEDS_UPSTREAM_BRANCHES" ] && [ "$NO_UPSTREAM" -eq 0 ]; then
-            STATUS_NEEDS="${STATUS_NEEDS}${C_NEEDS_UPSTREAM}Needs upstream ($NEEDS_UPSTREAM_BRANCHES)${C_RESET} "
+            STATUS_NEEDS="${STATUS_NEEDS}${C_NEEDS_UPSTREAM}needs upstream${C_RESET} " #( $NEEDS_UPSTREAM_BRANCHES)${C_RESET}
         fi
-
-        # Fix operator precedence — group tests so they work as intended:
         if { [ "$UNSTAGED" -ne 0 ] || [ "$UNCOMMITTED" -ne 0 ]; } && [ "$NO_UNCOMMITTED" -eq 0 ]; then
-            STATUS_NEEDS="${STATUS_NEEDS}${C_NEEDS_COMMIT}Uncommitted changes${C_RESET} "
+            STATUS_NEEDS="${STATUS_NEEDS}${C_NEEDS_COMMIT}uncommitted changes${C_RESET} "
         fi
         if [ -n "$UNTRACKED" ] && [ "$NO_UNTRACKED" -eq 0 ]; then
-            STATUS_NEEDS="${STATUS_NEEDS}${C_UNTRACKED}Untracked files${C_RESET} "
+            STATUS_NEEDS="${STATUS_NEEDS}${C_UNTRACKED}untracked files${C_RESET} "
         fi
-        if [ -n "$STASHES" ] && [ "$STASHES" -ne 0 ] && [ "$NO_STASHES" -eq 0 ]; then
-            STATUS_NEEDS="${STATUS_NEEDS}${C_STASHES}$STASHES Stashes${C_RESET} "
+        if [ "$STASHES" -gt 0 ] && [ "$NO_STASHES" -eq 0 ]; then
+            STATUS_NEEDS="${STATUS_NEEDS}${C_STASHES}$STASHES stashes${C_RESET} "
         fi
         if [ -z "$STATUS_NEEDS" ]; then
             IS_OK=1
             STATUS_NEEDS="${STATUS_NEEDS}${C_OK}ok${C_RESET} "
         fi
 
-        # Print unless excluded
+        # Output payload filter
         if [ "$IS_OK" -ne 1 ] || [ "$EXCLUDE_OK" -ne 1 ]; then
             printf "%s: %s\n" "$PROJ_DIR" "$STATUS_NEEDS"
         fi
-    done
+
+    done < <(find -L "$DIR" $FIND_OPTS -type d -name .git 2>/dev/null)
 done
