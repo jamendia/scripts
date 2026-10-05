@@ -3,8 +3,9 @@
 # MIT license
 # mgitstatus v3.5
 # Scans multiple directories for git repositories and reports status.
+#
 
-VERSION="3.5"
+VERSION="22.5"
 DEBUG=0
 
 GIT_ID="$(id -u -n)"
@@ -21,7 +22,7 @@ mgitstatus shows uncommitted, untracked and unpushed changes in multiple Git rep
   -e                   Exclude repos that are 'ok'
   -f                   Do a 'git fetch' on each repo (slow for many repos)
   -c                   Force color output (preserve colors when using pipes)
-  -d N, --depth=N      Scan this many directories deep
+  -d N, --depth=N      Scan this many directories deep (DEFAAULT = 4)
 
 Limits / filters:
   --no-push
@@ -45,7 +46,7 @@ NO_UPSTREAM=0
 NO_UNCOMMITTED=0
 NO_UNTRACKED=0
 NO_STASHES=0
-DEPTH=4
+DEPTH=4             # probably too much
 
 # Parse args
 while [ -n "$1" ]; do
@@ -116,7 +117,7 @@ fi
 
 # Iterate over directories
 for DIR in "${@:-"."}"; do
-    
+
     # Process substitution avoids subshell execution, keeping scope variables accessible
     while read -r GIT_DIR; do
         PROJ_DIR=$(dirname "$GIT_DIR")
@@ -159,36 +160,40 @@ for DIR in "${@:-"."}"; do
             continue
         fi
 
+        # Do fetch to check upstream
         if [ "$DO_FETCH" -eq 1 ]; then
             git -C "$PROJ_DIR" fetch -q >/dev/null 2>&1 || true
         fi
 
         git -C "$PROJ_DIR" update-index -q --refresh >/dev/null 2>&1 || true
 
-        # Define arrays natively to replace old /tmp text files
-        push_branches=()
-        pull_branches=()
-        upstream_branches=()
+        # Define arrays
+        PUSH_BRANCHES=()
+        PULL_BRANCHES=()
+        UPSTREAM_BRANCHES=()
 
-        # Modern branch tracking evaluation using git native formatting engine
-        while read -r branch track upstream; do
+        while IFS=$'\t' read -r branch track upstream; do
             [ -z "$branch" ] && continue
-            
-            if [ "$upstream" = "none" ]; then
-                upstream_branches+=("$branch")
-            elif [[ "$track" == *ahead* ]]; then
-                push_branches+=("$branch")
-            elif [[ "$track" == *behind* ]]; then
-                pull_branches+=("$branch")
+
+            if [[ $upstream == none ]]; then
+                UPSTREAM_BRANCHES+=("$branch")
+                continue
             fi
-        done < <(git -C "$PROJ_DIR" for-each-ref --format='%(refname:short) %(upstream:track) %(if)%(upstream)%(then)has_upstream%(else)none%(end)' refs/heads 2>/dev/null)
+
+            # trackshort values:
+            # >  = ahead
+            # <  = behind
+            # <> = diverged
+            [[ $track == *'>'* ]] && PUSH_BRANCHES+=("$branch")
+            [[ $track == *'<'* ]] && PULL_BRANCHES+=("$branch")
+        done < <(
+            git -C "$PROJ_DIR" for-each-ref \
+                --format='%(refname:short)%09%(upstream:trackshort)%09%(if)%(upstream)%(then)has_upstream%(else)none%(end)' \
+                refs/heads 2>/dev/null
+        )
 
         # Bash array joining tool using IFS
         join_by_comma() { local IFS=","; echo "$*"; }
-        
-        NEEDS_PUSH_BRANCHES=$(join_by_comma "${push_branches[@]}")
-        NEEDS_PULL_BRANCHES=$(join_by_comma "${pull_branches[@]}")
-        NEEDS_UPSTREAM_BRANCHES=$(join_by_comma "${upstream_branches[@]}")
 
         # Evaluate index state
         if ! git -C "$PROJ_DIR" rev-parse --verify HEAD >/dev/null 2>&1; then
@@ -203,7 +208,7 @@ for DIR in "${@:-"."}"; do
 
         # Extract untracked files count
         UNTRACKED=$(git -C "$PROJ_DIR" ls-files --exclude-standard --others 2>/dev/null)
-        
+
         # Super-fast stash check: count line items natively if file exists
         STASHES=0
         if [ -f "$GIT_DIR/logs/refs/stash" ]; then
@@ -213,16 +218,16 @@ for DIR in "${@:-"."}"; do
         # Synthesize status flags
         IS_OK=0
         STATUS_NEEDS=""
+        if [ "${#PUSH_BRANCHES[@]}" -gt 0 ] && [ "$NO_PUSH" -eq 0 ]; then
+            STATUS_NEEDS="${STATUS_NEEDS}${C_NEEDS_PUSH}needs push${C_RESET} "
+        fi
 
-        if [ -n "$NEEDS_PUSH_BRANCHES" ] && [ "$NO_PUSH" -eq 0 ]; then
-            STATUS_NEEDS="${STATUS_NEEDS}${C_NEEDS_PUSH}needs push${C_RESET} " # ( $NEEDS_PUSH_BRANCHES)${C_RESET}
+        if [ "${#PULL_BRANCHES[@]}" -gt 0 ] && [ "$NO_PULL" -eq 0 ]; then
+            STATUS_NEEDS="${STATUS_NEEDS}${C_NEEDS_PULL}needs pull${C_RESET} "
         fi
-        if [ -n "$NEEDS_PULL_BRANCHES" ] && [ "$NO_PULL" -eq 0 ]; then
-            STATUS_NEEDS="${STATUS_NEEDS}${C_NEEDS_PULL}needs pull${C_RESET} " #( $NEEDS_PULL_BRANCHES)${C_RESET}
-        fi
-        if [ -n "$NEEDS_UPSTREAM_BRANCHES" ] && [ "$NO_UPSTREAM" -eq 0 ]; then
-            STATUS_NEEDS="${STATUS_NEEDS}${C_NEEDS_UPSTREAM}needs upstream${C_RESET} " #( $NEEDS_UPSTREAM_BRANCHES)${C_RESET}
-        fi
+        if [ -n "$UPSTREAM_BRANCHES" ] && [ "$NO_UPSTREAM" -eq 0 ]; then
+            STATUS_NEEDS="${STATUS_NEEDS}${C_NEEDS_UPSTREAM}needs upstream${C_RESET} "
+		fi
         if { [ "$UNSTAGED" -ne 0 ] || [ "$UNCOMMITTED" -ne 0 ]; } && [ "$NO_UNCOMMITTED" -eq 0 ]; then
             STATUS_NEEDS="${STATUS_NEEDS}${C_NEEDS_COMMIT}uncommitted changes${C_RESET} "
         fi
@@ -241,6 +246,7 @@ for DIR in "${@:-"."}"; do
         if [ "$IS_OK" -ne 1 ] || [ "$EXCLUDE_OK" -ne 1 ]; then
             printf "%s: %s\n" "$PROJ_DIR" "$STATUS_NEEDS"
         fi
+
 
     done < <(find -L "$DIR" $FIND_OPTS -type d -name .git 2>/dev/null)
 done
